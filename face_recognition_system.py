@@ -1,4 +1,3 @@
-
 import cv2
 import face_recognition
 import os
@@ -84,10 +83,21 @@ class FaceRecognitionSystem:
     
     def run_webcam(self):
         """Run face recognition on webcam stream."""
-        print("Starting webcam face recognition... Press 'q' to quit")
+        print("\nStarting webcam face recognition...")
+        print("\nControls:")
+        print("- Press 'q' to quit")
+        print("- Press 's' to save an unknown face")
+        print("\nTips for better face detection:")
+        print("1. Ensure good lighting")
+        print("2. Face the camera directly")
+        print("3. Keep still when saving")
+        print("4. Maintain proper distance (2-3 feet from camera)\n")
         
-        # Start video capture
         video_capture = cv2.VideoCapture(0)
+        
+        # Set higher resolution
+        video_capture.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        video_capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         
         if not video_capture.isOpened():
             print("Error: Could not open webcam")
@@ -144,17 +154,93 @@ class FaceRecognitionSystem:
                 cv2.rectangle(frame, (left, bottom - 35), (right, bottom), (0, 255, 0), cv2.FILLED)
                 font = cv2.FONT_HERSHEY_DUPLEX
                 cv2.putText(frame, name, (left + 6, bottom - 6), font, 0.8, (255, 255, 255), 1)
+                
+                # If face is unknown, show save prompt
+                if name.startswith("Unknown"):
+                    cv2.putText(frame, "Press 's' to save face", (10, 30), font, 0.7, (0, 0, 255), 1)
             
             # Display frame
             cv2.imshow('Face Recognition', frame)
             
-            # Press 'q' to quit
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            # Handle keyboard input
+            key = cv2.waitKey(1) & 0xFF
+            if key == ord('q'):
                 break
+            elif key == ord('s'):
+                # Save unknown faces when 's' is pressed
+                for (top, right, bottom, left), name in zip(face_locations, face_names):
+                    if name.startswith("Unknown"):
+                        face_location = (top*4, right*4, bottom*4, left*4)
+                        saved_path = self.save_detected_face(frame, face_location)
+                        print(f"Saved unknown face to: {saved_path}")
         
         # Release resources
         video_capture.release()
         cv2.destroyAllWindows()
+    
+    def save_detected_face(self, frame, face_location, name="Unknown"):
+        """Save a detected face for future recognition."""
+        try:
+            top, right, bottom, left = face_location
+            
+            # Add padding around the face (20% on each side)
+            height = bottom - top
+            width = right - left
+            padding_y = int(height * 0.2)
+            padding_x = int(width * 0.2)
+            
+            # Ensure padded coordinates don't go outside frame bounds
+            frame_height, frame_width = frame.shape[:2]
+            top = max(0, top - padding_y)
+            bottom = min(frame_height, bottom + padding_y)
+            left = max(0, left - padding_x)
+            right = min(frame_width, right + padding_x)
+            
+            # Extract face image with padding
+            face_image = frame[top:bottom, left:right]
+            
+            # Enhance image quality
+            face_image = cv2.resize(face_image, (0, 0), fx=1.5, fy=1.5)  # Upscale
+            face_image = cv2.detailEnhance(face_image, sigma_s=10, sigma_r=0.15)  # Enhance details
+            
+            # Create directory for new faces
+            new_faces_dir = os.path.join(self.known_faces_dir, "new_detected")
+            if not os.path.exists(new_faces_dir):
+                os.makedirs(new_faces_dir)
+            
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"detected_face_{timestamp}.jpg"
+            filepath = os.path.join(new_faces_dir, filename)
+            
+            # Save the enhanced face image
+            cv2.imwrite(filepath, face_image)
+            print(f"Saved new face to: {filepath}")
+            
+            # Verify face can be detected in saved image
+            saved_image = face_recognition.load_image_file(filepath)
+            encodings = face_recognition.face_encodings(saved_image)
+            
+            if len(encodings) > 0:
+                face_encoding = encodings[0]
+                self.known_face_encodings.append(face_encoding)
+                self.known_face_names.append(f"Person_{timestamp}")
+                print(f"Successfully added face to known faces database")
+                return filepath
+            else:
+                print("Warning: Could not detect face in saved image.")
+                print("Tips for better face detection:")
+                print("1. Ensure good lighting")
+                print("2. Face the camera directly")
+                print("3. Remove glasses if wearing any")
+                print("4. Maintain proper distance from camera")
+                os.remove(filepath)
+                return None
+                
+        except Exception as e:
+            print(f"Error saving face: {str(e)}")
+            return None
+
 if __name__ == "__main__":
     known_faces_directory = "known_faces"  # Make sure this folder exists and has images
     system = FaceRecognitionSystem(known_faces_directory)
@@ -165,5 +251,4 @@ if __name__ == "__main__":
     # Option 2: To start webcam recognition
     system.run_webcam()
     print("✅ Script finished running.")
-        
-        
+
